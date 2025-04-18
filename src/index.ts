@@ -6,6 +6,7 @@ import { SYSTEM_PROMPT } from "./prompts";
 dotenv.config();
 
 const app = express();
+app.use(express.urlencoded({ extended: false }));
 
 
 
@@ -16,7 +17,12 @@ app.get("/", (req, res) => {
 });
 
 app.post("/incoming-call", async (req, res) => {
-  console.log("Incoming call data:", req.query);
+  const {
+    From, To, CallSid, CallStatus, Direction,
+    CallerCity, CallerState, CallerCountry, CallerZip
+  } = req.body;
+  const from_number = From.substring(1)
+  
   const options = {
     method: 'POST',
     url: 'https://api.ultravox.ai/api/calls',
@@ -54,7 +60,7 @@ app.post("/incoming-call", async (req, res) => {
               name: "gender",
               location: "PARAMETER_LOCATION_BODY",
               schema: {
-                description: "Gender of the patient (Male or Female)",
+                description: "gender of the patient",
                 type: "string"
               },
               required: true
@@ -64,7 +70,7 @@ app.post("/incoming-call", async (req, res) => {
               location: "PARAMETER_LOCATION_BODY",
               schema: {
                 type: "number",
-                description: "Age of the patient"
+                description: "age of the patient"
               },
               required: true
             },
@@ -76,11 +82,135 @@ app.post("/incoming-call", async (req, res) => {
                 type: "string"
               },
               required: true
+            },
+            {
+              name: "appointment_slot",
+              location: "PARAMETER_LOCATION_BODY",
+              schema: {
+                description: "The slot of the appointment to be booked",
+                type: "string"
+              },
+              required: true
+            },
+            
+          ],
+          staticParameters:[
+            {
+              "name": "phone",
+              "location": "PARAMETER_LOCATION_BODY",
+              "value": from_number
             }
           ],
-          precomputable: true,
+          precomputable: false,
+          timeout: "20s",
           http: {
-            baseUrlPattern: `${process.env.N8N_WEBHOOK_URL}`,
+            baseUrlPattern: `${process.env.N8N_APPOINTMENT_URL}`,
+            httpMethod: "POST"
+          }
+        }
+      },{
+        temporaryTool: {
+        modelToolName: "suggest_time",
+        description: "Suggests a time slot for the appointment",
+        precomputable: false,
+        timeout: "20s",
+        http: {
+          baseUrlPattern: `${process.env.N8N_SUGGESTION_URL}`,
+          httpMethod: "POST"
+        }
+      }
+
+      },
+      {
+        temporaryTool: {
+          modelToolName: "get_appointment",
+          description: "Gets the details of the existing appointment",
+          precomputable: false,
+          timeout: "20s",
+          staticParameters: [
+            {
+              "name": "phone",
+              "location": "PARAMETER_LOCATION_BODY",
+              "value": from_number
+            }
+          ],
+          http: {
+            baseUrlPattern: `${process.env.N8N_GET_APPOINTMENT_URL}`,
+            httpMethod: "POST"
+          }
+        }
+      },
+      {
+        temporaryTool: {
+          modelToolName: "edit_appointment",
+          description: "Edits the details of the existing appointment",
+          precomputable: false,
+          timeout: "20s",
+          dynamicParameters: [
+            {
+              name: "id",
+              location: "PARAMETER_LOCATION_BODY",
+              schema: {
+                description: "The ID of the appointment to be edited",
+                type: "string"
+              },
+              required: true
+            },
+            {
+              name:"full_name",
+              location: "PARAMETER_LOCATION_BODY",
+              schema: {
+                description: "full name of the patient",
+                type: "string"
+              },
+              required: true
+            },
+            {
+              name:"gender",
+              location: "PARAMETER_LOCATION_BODY",
+              schema: {
+                description: "gender of the patient",
+                type: "string"
+              },
+              required: true
+            },
+            {
+              name:"age",
+              location: "PARAMETER_LOCATION_BODY",
+              schema: {
+                description: "age of the patient",
+                type: "number"
+              },
+              required: true
+            },
+            {
+              name:"symptoms",
+              location: "PARAMETER_LOCATION_BODY",
+              schema: {
+                description: "Symptoms the patient is experiencing, summarized and short",
+                type: "string"
+              },
+              required: true
+            },
+            {
+              name:"appointment_slot",
+              location: "PARAMETER_LOCATION_BODY",
+              schema: {
+                description: "The slot of the appointment to be edited",
+                type: "string"
+              },
+              required: true
+            }
+          ],
+          staticParameters: [
+            {
+              "name": "phone",
+              "location": "PARAMETER_LOCATION_BODY",
+              "value": from_number
+            }
+          ],
+          http: {
+            baseUrlPattern: `${process.env.N8N_EDIT_APPOINTMENT_URL}`,
             httpMethod: "POST"
           }
         }
@@ -91,6 +221,7 @@ app.post("/incoming-call", async (req, res) => {
 
   try {
     const response = await axios(options);
+    console.log(response.data)
     const joinUrl = response.data.joinUrl;
 
     const twiml = new twilio.twiml.VoiceResponse();
